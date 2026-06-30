@@ -1,0 +1,914 @@
+// ============================================================
+//  سامانه مدیریت ساختمان (سامان) — اسکیمای دیتابیس
+//  PostgreSQL + Prisma
+//  اصول: نرمال‌شده، چند-ساختمانی، آماده‌ی multi-tenant،
+//        soft-delete روی موجودیت‌های مالی، index روی فیلدهای پرجست‌وجو.
+//  تاریخ‌ها: همگی timestamptz (UTC). تبدیل به جلالی در لایه نمایش.
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────── Enums ───────────────────────────
+
+enum OccupancyStatus {
+  OCCUPIED // سکونت دارد
+  VACANT // خالی
+  UNDER_RENOVATION // در حال بازسازی
+}
+
+enum LeaseType {
+  OWNER_OCCUPIED // مالک ساکن
+  RENTAL // اجاره
+}
+
+enum LeaseStatus {
+  ACTIVE
+  ENDED
+  CANCELED
+}
+
+enum ChargeMethod {
+  EQUAL // مساوی بین واحدها
+  BY_AREA // بر اساس متراژ
+  BY_PERSON // بر اساس تعداد نفرات
+  MIXED // ترکیبی (ثابت + متغیر)
+  FIXED // مبلغ ثابت دستی
+  COEFFICIENT // بر اساس ضریب واحد
+  CUSTOM_FORMULA // فرمول سفارشی
+}
+
+enum ChargePeriodStatus {
+  DRAFT // پیش‌نویس (محاسبه‌شده، تاییدنشده)
+  APPROVED // تاییدشده و ابلاغ‌شده
+  CLOSED // بسته‌شده
+}
+
+enum ChargeStatus {
+  PENDING // پرداخت‌نشده
+  PARTIAL // بخشی پرداخت‌شده
+  PAID // پرداخت‌شده
+  OVERDUE // معوق (سررسید گذشته)
+}
+
+enum PaymentMethod {
+  CASH // نقدی
+  CARD // کارت‌خوان
+  TRANSFER // کارت‌به‌کارت / واریز
+  ONLINE // درگاه آنلاین
+}
+
+enum PaymentType {
+  CHARGE // بابت شارژ
+  DEBT // تسویه بدهی
+  OTHER // متفرقه
+}
+
+enum PaymentStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+  REFUNDED
+}
+
+enum TransactionStatus {
+  INITIATED // ایجادشده
+  PENDING // در انتظار پرداخت
+  SUCCESS // موفق
+  FAILED // ناموفق
+  CANCELED // لغوشده
+}
+
+enum CashboxType {
+  CASH // صندوق نقدی
+  BANK // حساب بانکی
+}
+
+enum LedgerEntryType {
+  DEBIT // برداشت (خروج وجه)
+  CREDIT // واریز (ورود وجه)
+}
+
+enum LedgerRefType {
+  PAYMENT
+  INCOME
+  EXPENSE
+  MANUAL
+  TRANSFER
+}
+
+enum MaintenancePriority {
+  NORMAL // عادی
+  IMPORTANT // مهم
+  URGENT // فوری
+}
+
+enum MaintenanceStatus {
+  SUBMITTED // ثبت‌شده
+  REVIEWING // در انتظار بررسی
+  APPROVED // تاییدشده
+  IN_PROGRESS // در حال انجام
+  DONE // انجام‌شده
+  CANCELED // لغوشده
+}
+
+enum AnnouncementAudience {
+  ALL // همه
+  OWNERS // مالکین
+  RESIDENTS // ساکنین
+  CUSTOM // واحدهای منتخب
+}
+
+enum NotificationType {
+  CHARGE // شارژ جدید/سررسید
+  PAYMENT // پرداخت
+  MAINTENANCE // تعمیرات
+  ANNOUNCEMENT // اطلاعیه
+  SYSTEM // سیستمی
+}
+
+enum AttachmentKind {
+  IMAGE
+  PDF
+  RECEIPT // رسید
+  INVOICE // فاکتور
+  MAINTENANCE // ضمیمه تعمیرات
+  AVATAR
+  OTHER
+}
+
+enum OtpPurpose {
+  LOGIN
+  REGISTER
+  RESET_PASSWORD
+}
+
+// ─────────────────────── احراز هویت و کاربران ───────────────────────
+
+model User {
+  id           String    @id @default(cuid())
+  mobile       String    @unique // شماره موبایل (نام کاربری اصلی)
+  passwordHash String?   @map("password_hash")
+  fullName     String    @map("full_name")
+  email        String?   @unique
+  nationalId   String?   @unique @map("national_id") // کد ملی
+  avatarUrl    String?   @map("avatar_url")
+  isActive     Boolean   @default(true) @map("is_active")
+  mobileVerifiedAt DateTime? @map("mobile_verified_at")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  userRoles            UserRole[]
+  sessions             Session[]
+  residentProfiles     Resident[]
+  ownerProfiles        Owner[]
+  recordedIncomes      IncomeRecord[]        @relation("IncomeRecorder")
+  recordedExpenses     ExpenseRecord[]       @relation("ExpenseRecorder")
+  recordedPayments     Payment[]             @relation("PaymentRecorder")
+  authoredAnnouncements Announcement[]
+  announcementReads    AnnouncementRead[]
+  notifications        Notification[]
+  auditLogs            AuditLog[]
+  uploadedAttachments  Attachment[]
+  createdPeriods       ChargePeriod[]        @relation("PeriodCreator")
+  approvedPeriods      ChargePeriod[]        @relation("PeriodApprover")
+  maintenanceRequests  MaintenanceRequest[]  @relation("MaintenanceRequester")
+  assignedMaintenance  MaintenanceRequest[]  @relation("MaintenanceAssignee")
+  maintenanceComments  MaintenanceComment[]
+  ledgerEntries        LedgerEntry[]
+
+  @@index([deletedAt])
+  @@map("users")
+}
+
+model Session {
+  id               String    @id @default(cuid())
+  userId           String    @map("user_id")
+  refreshTokenHash String    @map("refresh_token_hash")
+  userAgent        String?   @map("user_agent")
+  ip               String?
+  expiresAt        DateTime  @map("expires_at")
+  lastUsedAt       DateTime  @default(now()) @map("last_used_at")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model OtpCode {
+  id         String     @id @default(cuid())
+  mobile     String
+  codeHash   String     @map("code_hash")
+  purpose    OtpPurpose
+  expiresAt  DateTime   @map("expires_at")
+  consumedAt DateTime?  @map("consumed_at")
+  attempts   Int        @default(0)
+  ip         String?
+  createdAt  DateTime   @default(now()) @map("created_at")
+
+  @@index([mobile, purpose])
+  @@index([expiresAt])
+  @@map("otp_codes")
+}
+
+// ─────────────────────────── RBAC ───────────────────────────
+
+model Role {
+  id          String   @id @default(cuid())
+  key         String   @unique // SUPER_ADMIN, BUILDING_MANAGER, ACCOUNTANT, RESIDENT, OWNER, TECHNICIAN
+  name        String // نام فارسی نقش
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  key         String   @unique // مثل charge:create, payment:read
+  group       String // گروه: charge, payment, building, ...
+  description String // توضیح فارسی
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  rolePermissions RolePermission[]
+
+  @@index([group])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  roleId     String   @map("role_id")
+  buildingId String?  @map("building_id") // نقش محدود به یک ساختمان؛ null = سراسری
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  building Building? @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId, buildingId])
+  @@index([buildingId])
+  @@map("user_roles")
+}
+
+// ─────────────────────── ساختمان / طبقه / واحد ───────────────────────
+
+model Building {
+  id          String    @id @default(cuid())
+  name        String // نام مجتمع/برج
+  address     String?
+  city        String?
+  postalCode  String?   @map("postal_code")
+  floorsCount Int       @default(0) @map("floors_count")
+  unitsCount  Int       @default(0) @map("units_count")
+  managerName String?   @map("manager_name")
+  managerPhone String?  @map("manager_phone")
+  foundedAt   DateTime? @map("founded_at")
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  floors        Floor[]
+  units         Unit[]
+  userRoles     UserRole[]
+  residents     Resident[]
+  owners        Owner[]
+  leases        Lease[]
+  chargePeriods ChargePeriod[]
+  payments      Payment[]
+  transactions  PaymentTransaction[]
+  incomes       IncomeRecord[]
+  expenses      ExpenseRecord[]
+  expenseCategories ExpenseCategory[]
+  cashboxes     Cashbox[]
+  ledgerEntries LedgerEntry[]
+  maintenance   MaintenanceRequest[]
+  announcements Announcement[]
+  attachments   Attachment[]
+  settings      Setting[]
+
+  @@index([deletedAt])
+  @@map("buildings")
+}
+
+model Floor {
+  id         String   @id @default(cuid())
+  buildingId String   @map("building_id")
+  number     Int // شماره طبقه (می‌تواند منفی برای زیرزمین)
+  title      String? // عنوان دلخواه (همکف، لابی...)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  building Building @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  units    Unit[]
+
+  @@unique([buildingId, number])
+  @@index([buildingId])
+  @@map("floors")
+}
+
+model Unit {
+  id              String          @id @default(cuid())
+  buildingId      String          @map("building_id")
+  floorId         String?         @map("floor_id")
+  code            String // شماره واحد
+  area            Decimal         @default(0) @db.Decimal(8, 2) // متراژ (متر مربع)
+  residentsCount  Int             @default(0) @map("residents_count")
+  occupancyStatus OccupancyStatus @default(VACANT) @map("occupancy_status")
+  hasParking      Boolean         @default(false) @map("has_parking")
+  parkingCount    Int             @default(0) @map("parking_count")
+  hasStorage      Boolean         @default(false) @map("has_storage")
+  storageCount    Int             @default(0) @map("storage_count")
+  coefficient     Decimal         @default(1) @db.Decimal(5, 2) // ضریب شارژ
+  ownerId         String?         @map("owner_id")
+  currentResidentId String?       @map("current_resident_id")
+  description     String?
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+  deletedAt       DateTime?       @map("deleted_at")
+
+  building        Building            @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  floor           Floor?              @relation(fields: [floorId], references: [id], onDelete: SetNull)
+  owner           Owner?              @relation("UnitOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  currentResident Resident?           @relation("UnitCurrentResident", fields: [currentResidentId], references: [id], onDelete: SetNull)
+  leases          Lease[]
+  charges         Charge[]
+  payments        Payment[]
+  transactions    PaymentTransaction[]
+  maintenance     MaintenanceRequest[]
+
+  @@unique([buildingId, code])
+  @@index([buildingId])
+  @@index([floorId])
+  @@index([occupancyStatus])
+  @@index([deletedAt])
+  @@map("units")
+}
+
+// ─────────────────────── ساکنین و مالکین ───────────────────────
+
+model Owner {
+  id         String    @id @default(cuid())
+  buildingId String    @map("building_id")
+  userId     String?   @map("user_id") // حساب کاربری مرتبط (اختیاری)
+  fullName   String    @map("full_name")
+  mobile     String
+  nationalId String?   @map("national_id")
+  email      String?
+  iban       String? // شماره شبا برای تسویه
+  address    String?
+  notes      String?
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  deletedAt  DateTime? @map("deleted_at")
+
+  building   Building @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  ownedUnits Unit[]   @relation("UnitOwner")
+  leases     Lease[]
+
+  @@index([buildingId])
+  @@index([mobile])
+  @@index([deletedAt])
+  @@map("owners")
+}
+
+model Resident {
+  id          String    @id @default(cuid())
+  buildingId  String    @map("building_id")
+  userId      String?   @map("user_id")
+  fullName    String    @map("full_name")
+  mobile      String
+  nationalId  String?   @map("national_id")
+  email       String?
+  emergencyPhone String? @map("emergency_phone")
+  moveInAt    DateTime? @map("move_in_at")
+  moveOutAt   DateTime? @map("move_out_at")
+  isActive    Boolean   @default(true) @map("is_active")
+  notes       String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  building     Building             @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  user         User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  currentUnits Unit[]               @relation("UnitCurrentResident")
+  leases       Lease[]
+  payments     Payment[]
+  maintenance  MaintenanceRequest[] @relation("ResidentMaintenance")
+
+  @@index([buildingId])
+  @@index([mobile])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("residents")
+}
+
+model Lease {
+  id           String      @id @default(cuid())
+  buildingId   String      @map("building_id")
+  unitId       String      @map("unit_id")
+  residentId   String?     @map("resident_id") // ساکن (مستاجر یا مالکِ ساکن)
+  ownerId      String?     @map("owner_id") // مالک طرف قرارداد
+  type         LeaseType   @default(RENTAL)
+  status       LeaseStatus @default(ACTIVE)
+  startDate    DateTime    @map("start_date")
+  endDate      DateTime?   @map("end_date")
+  depositAmount Decimal    @default(0) @map("deposit_amount") @db.Decimal(14, 0) // ودیعه (ریال)
+  rentAmount   Decimal     @default(0) @map("rent_amount") @db.Decimal(14, 0) // اجاره ماهانه (ریال)
+  description  String?
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+  deletedAt    DateTime?   @map("deleted_at")
+
+  building Building  @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  unit     Unit      @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  resident Resident? @relation(fields: [residentId], references: [id], onDelete: SetNull)
+  owner    Owner?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+
+  @@index([buildingId])
+  @@index([unitId])
+  @@index([status])
+  @@map("leases")
+}
+
+// ─────────────────────── شارژ و بدهی ───────────────────────
+
+model ChargePeriod {
+  id              String             @id @default(cuid())
+  buildingId      String             @map("building_id")
+  title           String // عنوان دوره مثل «شارژ تیر ۱۴۰۳»
+  year            Int // سال جلالی
+  month           Int // ماه جلالی (۱..۱۲)
+  method          ChargeMethod       @default(MIXED)
+  status          ChargePeriodStatus @default(DRAFT)
+  baseAmount      Decimal            @default(0) @map("base_amount") @db.Decimal(14, 0) // مبلغ پایه/ثابت
+  totalAmount     Decimal            @default(0) @map("total_amount") @db.Decimal(16, 0) // جمع کل دوره
+  penaltyPerDay   Decimal            @default(0) @map("penalty_per_day") @db.Decimal(10, 0) // جریمه روزانه دیرکرد (ریال)
+  dueDate         DateTime           @map("due_date") // سررسید
+  formula         Json? // پیکربندی فرمول سفارشی
+  description     String?
+  createdById     String?            @map("created_by_id")
+  approvedById    String?            @map("approved_by_id")
+  approvedAt      DateTime?          @map("approved_at")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  deletedAt       DateTime?          @map("deleted_at")
+
+  building   Building      @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  createdBy  User?         @relation("PeriodCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  approvedBy User?         @relation("PeriodApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  items      ChargeItem[]
+  charges    Charge[]
+
+  @@unique([buildingId, year, month])
+  @@index([buildingId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("charge_periods")
+}
+
+// خطوط ترکیب‌دهنده‌ی شارژ یک دوره (مثلاً «نظافت ثابت»، «آسانسور نفری»)
+model ChargeItem {
+  id        String       @id @default(cuid())
+  periodId  String       @map("period_id")
+  title     String
+  method    ChargeMethod @default(FIXED)
+  amount    Decimal      @default(0) @db.Decimal(14, 0) // مبلغ پایه این خط (ریال)
+  order     Int          @default(0)
+  createdAt DateTime     @default(now()) @map("created_at")
+
+  period ChargePeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@index([periodId])
+  @@map("charge_items")
+}
+
+// شارژ محاسبه‌شده‌ی هر واحد در یک دوره
+model Charge {
+  id            String       @id @default(cuid())
+  periodId      String       @map("period_id")
+  unitId        String       @map("unit_id")
+  amount        Decimal      @default(0) @db.Decimal(14, 0) // مبلغ شارژ این واحد (ریال)
+  penaltyAmount Decimal      @default(0) @map("penalty_amount") @db.Decimal(14, 0) // جریمه محاسبه‌شده
+  paidAmount    Decimal      @default(0) @map("paid_amount") @db.Decimal(14, 0)
+  status        ChargeStatus @default(PENDING)
+  dueDate       DateTime     @map("due_date")
+  breakdown     Json? // ریز محاسبه (سهم هر خط)
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  period   ChargePeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  unit     Unit         @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  payments Payment[]
+
+  @@unique([periodId, unitId])
+  @@index([unitId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("charges")
+}
+
+// ─────────────────────── پرداخت‌ها ───────────────────────
+
+model Payment {
+  id          String        @id @default(cuid())
+  buildingId  String        @map("building_id")
+  unitId      String?       @map("unit_id")
+  chargeId    String?       @map("charge_id")
+  residentId  String?       @map("resident_id") // پرداخت‌کننده
+  cashboxId   String?       @map("cashbox_id")
+  amount      Decimal       @db.Decimal(14, 0) // ریال
+  method      PaymentMethod @default(CASH)
+  type        PaymentType   @default(CHARGE)
+  status      PaymentStatus @default(CONFIRMED)
+  receiptNo   String?       @unique @map("receipt_no") // شماره رسید
+  paidAt      DateTime      @default(now()) @map("paid_at")
+  description String?
+  recordedById String?      @map("recorded_by_id")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  deletedAt   DateTime?     @map("deleted_at")
+
+  building    Building            @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  unit        Unit?               @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  charge      Charge?             @relation(fields: [chargeId], references: [id], onDelete: SetNull)
+  resident    Resident?           @relation(fields: [residentId], references: [id], onDelete: SetNull)
+  cashbox     Cashbox?            @relation(fields: [cashboxId], references: [id], onDelete: SetNull)
+  recordedBy  User?               @relation("PaymentRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
+  transaction PaymentTransaction?
+
+  @@index([buildingId])
+  @@index([unitId])
+  @@index([chargeId])
+  @@index([status])
+  @@index([paidAt])
+  @@index([deletedAt])
+  @@map("payments")
+}
+
+model PaymentTransaction {
+  id              String            @id @default(cuid())
+  buildingId      String            @map("building_id")
+  unitId          String?           @map("unit_id")
+  paymentId       String?           @unique @map("payment_id")
+  amount          Decimal           @db.Decimal(14, 0)
+  gateway         String            @default("zarinpal") // درگاه
+  authority       String?           @unique // شناسه تراکنش درگاه
+  refId           String?           @map("ref_id") // کد رهگیری بانک
+  cardPan         String?           @map("card_pan")
+  status          TransactionStatus @default(INITIATED)
+  payerMobile     String?           @map("payer_mobile")
+  description     String?
+  callbackPayload Json?             @map("callback_payload")
+  paidAt          DateTime?         @map("paid_at")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  building Building @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  unit     Unit?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  payment  Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@index([buildingId])
+  @@index([status])
+  @@index([authority])
+  @@map("payment_transactions")
+}
+
+// ─────────────────────── حسابداری ───────────────────────
+
+model Cashbox {
+  id             String      @id @default(cuid())
+  buildingId     String      @map("building_id")
+  name           String // نام صندوق/حساب
+  type           CashboxType @default(CASH)
+  accountNumber  String?     @map("account_number")
+  iban           String?
+  initialBalance Decimal     @default(0) @map("initial_balance") @db.Decimal(16, 0)
+  balance        Decimal     @default(0) @db.Decimal(16, 0) // مانده جاری (ریال)
+  isDefault      Boolean     @default(false) @map("is_default")
+  isActive       Boolean     @default(true) @map("is_active")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+  deletedAt      DateTime?   @map("deleted_at")
+
+  building      Building       @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  incomes       IncomeRecord[]
+  expenses      ExpenseRecord[]
+  payments      Payment[]
+  ledgerEntries LedgerEntry[]
+
+  @@index([buildingId])
+  @@map("cashboxes")
+}
+
+// دفتر کل حرکت‌های صندوق (هر ورود/خروج وجه)
+model LedgerEntry {
+  id           String          @id @default(cuid())
+  buildingId   String          @map("building_id")
+  cashboxId    String          @map("cashbox_id")
+  entryType    LedgerEntryType @map("entry_type")
+  refType      LedgerRefType   @map("ref_type")
+  refId        String?         @map("ref_id") // شناسه سند مرجع
+  amount       Decimal         @db.Decimal(16, 0)
+  balanceAfter Decimal         @map("balance_after") @db.Decimal(16, 0)
+  description  String?
+  occurredAt   DateTime        @default(now()) @map("occurred_at")
+  createdById  String?         @map("created_by_id")
+  createdAt    DateTime        @default(now()) @map("created_at")
+
+  building  Building @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  cashbox   Cashbox  @relation(fields: [cashboxId], references: [id], onDelete: Cascade)
+  createdBy User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([buildingId])
+  @@index([cashboxId])
+  @@index([occurredAt])
+  @@map("ledger_entries")
+}
+
+model ExpenseCategory {
+  id         String    @id @default(cuid())
+  buildingId String?   @map("building_id") // null = سراسری/پیش‌فرض
+  title      String // مثل آسانسور، نظافت، تاسیسات، حقوق سرایدار
+  parentId   String?   @map("parent_id")
+  isSystem   Boolean   @default(false) @map("is_system")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  building Building?         @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  parent   ExpenseCategory?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children ExpenseCategory[] @relation("CategoryTree")
+  expenses ExpenseRecord[]
+
+  @@index([buildingId])
+  @@map("expense_categories")
+}
+
+model ExpenseRecord {
+  id           String    @id @default(cuid())
+  buildingId   String    @map("building_id")
+  categoryId   String?   @map("category_id")
+  cashboxId    String?   @map("cashbox_id")
+  attachmentId String?   @map("attachment_id")
+  title        String
+  amount       Decimal   @db.Decimal(14, 0) // ریال
+  vendor       String? // طرف حساب/پیمانکار
+  spentAt      DateTime  @map("spent_at")
+  description  String?
+  recordedById String?   @map("recorded_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  building   Building         @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  category   ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  cashbox    Cashbox?         @relation(fields: [cashboxId], references: [id], onDelete: SetNull)
+  attachment Attachment?      @relation(fields: [attachmentId], references: [id], onDelete: SetNull)
+  recordedBy User?            @relation("ExpenseRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@index([buildingId])
+  @@index([categoryId])
+  @@index([spentAt])
+  @@index([deletedAt])
+  @@map("expense_records")
+}
+
+model IncomeRecord {
+  id           String    @id @default(cuid())
+  buildingId   String    @map("building_id")
+  cashboxId    String?   @map("cashbox_id")
+  attachmentId String?   @map("attachment_id")
+  title        String
+  source       String? // منبع: شارژ، اجاره مشاعات، جریمه، متفرقه
+  amount       Decimal   @db.Decimal(14, 0)
+  receivedAt   DateTime  @map("received_at")
+  description  String?
+  recordedById String?   @map("recorded_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  building   Building    @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  cashbox    Cashbox?    @relation(fields: [cashboxId], references: [id], onDelete: SetNull)
+  attachment Attachment? @relation(fields: [attachmentId], references: [id], onDelete: SetNull)
+  recordedBy User?       @relation("IncomeRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@index([buildingId])
+  @@index([receivedAt])
+  @@index([deletedAt])
+  @@map("income_records")
+}
+
+// ─────────────────────── تعمیرات و نگهداری ───────────────────────
+
+model MaintenanceRequest {
+  id          String              @id @default(cuid())
+  buildingId  String              @map("building_id")
+  unitId      String?             @map("unit_id")
+  requesterId String?             @map("requester_id") // کاربر ثبت‌کننده
+  residentId  String?             @map("resident_id")
+  assignedToId String?            @map("assigned_to_id") // تکنسین
+  trackingNo  String              @unique @map("tracking_no") // کد پیگیری
+  title       String
+  description String?
+  category    String? // برق، آسانسور، لوله‌کشی، ...
+  location    String? // محل/دستگاه
+  priority    MaintenancePriority @default(NORMAL)
+  status      MaintenanceStatus   @default(SUBMITTED)
+  cost        Decimal?            @db.Decimal(14, 0)
+  resolvedAt  DateTime?           @map("resolved_at")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+  deletedAt   DateTime?           @map("deleted_at")
+
+  building    Building                @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  unit        Unit?                   @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  requester   User?                   @relation("MaintenanceRequester", fields: [requesterId], references: [id], onDelete: SetNull)
+  resident    Resident?               @relation("ResidentMaintenance", fields: [residentId], references: [id], onDelete: SetNull)
+  assignedTo  User?                   @relation("MaintenanceAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  comments    MaintenanceComment[]
+  attachments MaintenanceAttachment[]
+
+  @@index([buildingId])
+  @@index([status])
+  @@index([priority])
+  @@index([assignedToId])
+  @@index([deletedAt])
+  @@map("maintenance_requests")
+}
+
+model MaintenanceComment {
+  id             String             @id @default(cuid())
+  requestId      String             @map("request_id")
+  authorId       String?            @map("author_id")
+  body           String
+  statusFrom     MaintenanceStatus? @map("status_from")
+  statusTo       MaintenanceStatus? @map("status_to")
+  createdAt      DateTime           @default(now()) @map("created_at")
+
+  request MaintenanceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  author  User?              @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([requestId])
+  @@map("maintenance_comments")
+}
+
+model MaintenanceAttachment {
+  id           String   @id @default(cuid())
+  requestId    String   @map("request_id")
+  attachmentId String   @map("attachment_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  request    MaintenanceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  attachment Attachment         @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@map("maintenance_attachments")
+}
+
+// ─────────────────────── اطلاعیه‌ها و اعلان‌ها ───────────────────────
+
+model Announcement {
+  id          String               @id @default(cuid())
+  buildingId  String               @map("building_id")
+  authorId    String?              @map("author_id")
+  title       String
+  body        String
+  audience    AnnouncementAudience @default(ALL)
+  targetUnits Json?                @map("target_units") // آرایه شناسه واحد در حالت CUSTOM
+  sendSms     Boolean              @default(false) @map("send_sms")
+  isPinned    Boolean              @default(false) @map("is_pinned")
+  publishedAt DateTime?            @map("published_at")
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+  deletedAt   DateTime?            @map("deleted_at")
+
+  building Building           @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  author   User?              @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  reads    AnnouncementRead[]
+
+  @@index([buildingId])
+  @@index([publishedAt])
+  @@index([deletedAt])
+  @@map("announcements")
+}
+
+model AnnouncementRead {
+  announcementId String   @map("announcement_id")
+  userId         String   @map("user_id")
+  readAt         DateTime @default(now()) @map("read_at")
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([announcementId, userId])
+  @@map("announcement_reads")
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String           @map("user_id")
+  type      NotificationType @default(SYSTEM)
+  title     String
+  body      String?
+  data      Json?
+  isRead    Boolean          @default(false) @map("is_read")
+  readAt    DateTime?        @map("read_at")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ─────────────────────── فایل‌ها / تنظیمات / لاگ ───────────────────────
+
+model Attachment {
+  id         String         @id @default(cuid())
+  buildingId String?        @map("building_id")
+  uploaderId String?        @map("uploader_id")
+  fileName   String         @map("file_name")
+  storageKey String         @unique @map("storage_key")
+  mimeType   String         @map("mime_type")
+  size       Int // بایت
+  kind       AttachmentKind @default(OTHER)
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  building              Building?               @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+  uploader              User?                   @relation(fields: [uploaderId], references: [id], onDelete: SetNull)
+  expenseRecords        ExpenseRecord[]
+  incomeRecords         IncomeRecord[]
+  maintenanceAttachments MaintenanceAttachment[]
+
+  @@index([buildingId])
+  @@index([kind])
+  @@map("attachments")
+}
+
+model Setting {
+  id         String   @id @default(cuid())
+  buildingId String?  @map("building_id") // null = سراسری
+  key        String
+  value      Json
+  scope      String   @default("building") // global | building
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  building Building? @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+
+  @@unique([buildingId, key])
+  @@map("settings")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?  @map("user_id")
+  buildingId String?  @map("building_id")
+  action     String // CREATE | UPDATE | DELETE | LOGIN | PAYMENT ...
+  entity     String // نام موجودیت
+  entityId   String?  @map("entity_id")
+  before     Json?
+  after      Json?
+  ip         String?
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

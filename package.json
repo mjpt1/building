@@ -1,0 +1,22 @@
+{
+  "name": "saman",
+  "version": "1.0.0",
+  "private": true,
+  "description": "سامانه جامع مدیریت ساختمان",
+  "packageManager": "pnpm@9.7.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "build": "pnpm --filter \"./apps/*\" build",
+    "lint": "pnpm --filter \"./apps/*\" lint",
+    "test": "pnpm --filter @saman/api test",
+    "db:migrate": "pnpm --filter @saman/api prisma:migrate",
+    "db:seed": "pnpm --filter @saman/api seed"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "typescript": "^5.5.4"
+  }
+}
