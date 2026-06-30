@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Megaphone, Pin } from 'lucide-react';
+import { Plus, Megaphone, Pin, Trash2 } from 'lucide-react';
 import { api, fetchData, apiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth-store';
 import { PageHeader, Loading, EmptyState, Modal } from '@/components/ui';
@@ -24,10 +24,19 @@ export default function AnnouncementsPage() {
 }
 
 function List({ buildingId }: { buildingId: string }) {
+  const qc = useQueryClient();
+  const { hasPerm } = useAuth();
   const { data, isLoading } = useQuery({
     queryKey: ['announcements', buildingId],
     queryFn: async () => (await fetchData(`/buildings/${buildingId}/announcements`, { limit: 50 })).data,
   });
+
+  async function remove(id: string) {
+    if (!confirm('این اطلاعیه حذف شود؟')) return;
+    await api.delete(`/announcements/${id}`);
+    qc.invalidateQueries({ queryKey: ['announcements', buildingId] });
+  }
+
   if (isLoading) return <Loading />;
   if (!data?.length) return <EmptyState icon={<Megaphone size={32} />} text="اطلاعیه‌ای ثبت نشده است." />;
 
@@ -39,6 +48,11 @@ function List({ buildingId }: { buildingId: string }) {
             {a.isPinned && <Pin size={14} className="text-brand-600" />}
             <h3 className="font-bold text-gray-800">{a.title}</h3>
             <span className="mr-auto text-xs text-gray-400">{a.publishedAt?.jalali}</span>
+            {hasPerm('announcement:delete') && (
+              <button className="text-gray-300 hover:text-danger" title="حذف" onClick={() => remove(a.id)}>
+                <Trash2 size={15} />
+              </button>
+            )}
           </div>
           <p className="text-sm text-gray-600">{a.body}</p>
           <div className="mt-2 text-xs text-gray-400">{a.author} · {a.readsCount} بازدید</div>

@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
 import {
   LayoutDashboard, Building2, Users, Receipt, Wallet, Wrench,
-  Megaphone, BarChart3, Settings, Sparkles, ShieldCheck, ScrollText,
+  Megaphone, BarChart3, Settings, Sparkles, ShieldCheck, ScrollText, UserCog,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-store';
 
@@ -27,6 +27,7 @@ const NAV: NavItem[] = [
   { href: '/announcements', label: 'اطلاعیه‌ها', icon: Megaphone, perm: 'announcement:read' },
   { href: '/reports', label: 'گزارش‌ها', icon: BarChart3, perm: 'report:read' },
   { href: '/analytics', label: 'تحلیل هوشمند', icon: Sparkles, perm: 'analytics:query' },
+  { href: '/users', label: 'مدیریت کاربران', icon: UserCog, perm: 'user:read' },
   { href: '/roles', label: 'نقش‌ها و دسترسی', icon: ShieldCheck, perm: 'role:read' },
   { href: '/audit', label: 'لاگ فعالیت‌ها', icon: ScrollText, perm: 'audit:read' },
   { href: '/settings', label: 'تنظیمات', icon: Settings },

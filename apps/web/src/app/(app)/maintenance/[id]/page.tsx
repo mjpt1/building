@@ -21,17 +21,35 @@ export default function MaintenanceDetailPage() {
   const qc = useQueryClient();
   const { hasPerm } = useAuth();
   const [comment, setComment] = useState('');
+  const [cost, setCost] = useState<string>('');
+  const [technician, setTechnician] = useState('');
   const [error, setError] = useState('');
 
   const { data, isLoading } = useQuery({
     queryKey: ['maint-detail', id],
     queryFn: async () => (await fetchData(`/maintenance/${id}`)).data,
   });
+  const { data: users } = useQuery({
+    queryKey: ['users-tech'],
+    queryFn: async () => (await fetchData('/users', { limit: 100 })).data,
+    enabled: hasPerm('maintenance:update'),
+  });
+  const technicians = (users ?? []).filter((u: any) => (u.roles ?? []).some((r: any) => r.key === 'TECHNICIAN'));
 
   async function changeStatus(status: string) {
     setError('');
     try {
-      await api.patch(`/maintenance/${id}/status`, { status });
+      const body: any = { status };
+      if (status === 'DONE' && cost) body.cost = Number(cost);
+      await api.patch(`/maintenance/${id}/status`, body);
+      qc.invalidateQueries({ queryKey: ['maint-detail', id] });
+    } catch (e) { setError(apiError(e)); }
+  }
+  async function assign() {
+    if (!technician) return;
+    setError('');
+    try {
+      await api.patch(`/maintenance/${id}/assign`, { assignedToId: technician });
       qc.invalidateQueries({ queryKey: ['maint-detail', id] });
     } catch (e) { setError(apiError(e)); }
   }
@@ -57,7 +75,9 @@ export default function MaintenanceDetailPage() {
             <div><dt className="text-gray-400">دسته</dt><dd>{data.category ?? '—'}</dd></div>
             <div><dt className="text-gray-400">اولویت</dt><dd><StatusBadge status={data.priority} /></dd></div>
             <div><dt className="text-gray-400">ثبت‌کننده</dt><dd>{data.resident?.fullName ?? data.requester?.fullName ?? '—'}</dd></div>
+            <div><dt className="text-gray-400">تکنسین</dt><dd>{data.assignedTo?.fullName ?? '—'}</dd></div>
             <div><dt className="text-gray-400">هزینه</dt><dd>{data.cost ? formatRial(data.cost) : '—'}</dd></div>
+            <div><dt className="text-gray-400">تاریخ ثبت</dt><dd>{data.createdAt?.jalali}</dd></div>
           </dl>
 
           <div className="mt-5 border-t border-gray-100 pt-4">
@@ -81,16 +101,40 @@ export default function MaintenanceDetailPage() {
           </div>
         </div>
 
-        <div className="card h-fit">
-          <h4 className="mb-3 text-sm font-bold text-gray-700">تغییر وضعیت</h4>
-          {hasPerm('maintenance:update') ? (
-            <div className="space-y-2">
-              {(NEXT_STATUS[data.status] ?? []).map((s) => (
-                <button key={s.value} onClick={() => changeStatus(s.value)} className="btn-ghost w-full justify-start">{s.label}</button>
-              ))}
-              {(NEXT_STATUS[data.status] ?? []).length === 0 && <p className="text-sm text-gray-400">این درخواست بسته شده است.</p>}
-            </div>
-          ) : <p className="text-sm text-gray-400">دسترسی تغییر وضعیت ندارید.</p>}
+        <div className="space-y-4">
+          {hasPerm('maintenance:update') && (
+            <>
+              <div className="card">
+                <h4 className="mb-3 text-sm font-bold text-gray-700">تخصیص تکنسین</h4>
+                <div className="flex gap-2">
+                  <select className="input" value={technician} onChange={(e) => setTechnician(e.target.value)}>
+                    <option value="">— انتخاب تکنسین —</option>
+                    {technicians.map((t: any) => <option key={t.id} value={t.id}>{t.fullName}</option>)}
+                  </select>
+                  <button className="btn-ghost whitespace-nowrap" onClick={assign}>تخصیص</button>
+                </div>
+              </div>
+
+              <div className="card">
+                <h4 className="mb-3 text-sm font-bold text-gray-700">تغییر وضعیت</h4>
+                {data.status === 'IN_PROGRESS' && (
+                  <div className="mb-3">
+                    <label className="label">هزینه‌ی تعمیر (ریال) — هنگام اتمام</label>
+                    <input className="input text-center" dir="ltr" type="number" value={cost} onChange={(e) => setCost(e.target.value)} />
+                  </div>
+                )}
+                <div className="space-y-2">
+                  {(NEXT_STATUS[data.status] ?? []).map((s) => (
+                    <button key={s.value} onClick={() => changeStatus(s.value)} className="btn-ghost w-full justify-start">{s.label}</button>
+                  ))}
+                  {(NEXT_STATUS[data.status] ?? []).length === 0 && <p className="text-sm text-gray-400">این درخواست بسته شده است.</p>}
+                </div>
+              </div>
+            </>
+          )}
+          {!hasPerm('maintenance:update') && (
+            <div className="card"><p className="text-sm text-gray-400">دسترسی مدیریت این درخواست را ندارید.</p></div>
+          )}
         </div>
       </div>
     </div>

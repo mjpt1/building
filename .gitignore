@@ -35,3 +35,9 @@ apps/api/prisma/*.db
 # uploads (local)
 uploads/
 storage/
+
+# local postgres for offline demo run (not part of the product)
+.pg/
+.pgdata/
+.pgtmp/
+apps/api/scripts/start-db.js
