@@ -1,8 +1,10 @@
+import { AuthUser, CurrentUser } from '@/common/decorators/current-user.decorator';
+import { isSuperAdmin } from '@/common/guards/building-scope.guard';
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { Permissions } from '@/common/decorators/permissions.decorator';
-import { PaginationQueryDto, buildMeta } from '@/common/dto/pagination.dto';
+import { ListFilterQueryDto, buildMeta } from '@/common/dto/pagination.dto';
 import { toJalali } from '@/common/utils/jalali.util';
 
 @ApiTags('audit')
@@ -13,8 +15,12 @@ export class AuditController {
 
   @Get()
   @Permissions('audit:read')
-  async list(@Query() q: PaginationQueryDto & { entity?: string; userId?: string }) {
+  async list(
+    @Query() q: ListFilterQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     const where: any = {};
+    if (!isSuperAdmin(user)) where.buildingId = { in: user.buildingIds };
     if (q.entity) where.entity = q.entity;
     if (q.userId) where.userId = q.userId;
 

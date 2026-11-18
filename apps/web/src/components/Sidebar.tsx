@@ -17,15 +17,18 @@ interface NavItem {
   roles?: string[];
 }
 
+// ساکن و مالک این صفحات سطح ساختمان را ندارند؛ بدهی خود را در داشبورد می‌بینند.
+const STAFF = ['SUPER_ADMIN', 'BUILDING_MANAGER', 'ACCOUNTANT'];
+
 const NAV: NavItem[] = [
   { href: '/dashboard', label: 'داشبورد', icon: LayoutDashboard },
   { href: '/buildings', label: 'ساختمان‌ها و واحدها', icon: Building2, perm: 'building:read' },
   { href: '/residents', label: 'ساکنین و مالکین', icon: Users, perm: 'resident:read' },
-  { href: '/charges', label: 'شارژ و بدهی', icon: Receipt, perm: 'charge:read' },
+  { href: '/charges', label: 'شارژ و بدهی', icon: Receipt, perm: 'charge:read', roles: STAFF },
   { href: '/accounting', label: 'حسابداری', icon: Wallet, perm: 'accounting:read' },
   { href: '/maintenance', label: 'تعمیرات', icon: Wrench, perm: 'maintenance:read' },
   { href: '/announcements', label: 'اطلاعیه‌ها', icon: Megaphone, perm: 'announcement:read' },
-  { href: '/reports', label: 'گزارش‌ها', icon: BarChart3, perm: 'report:read' },
+  { href: '/reports', label: 'گزارش‌ها', icon: BarChart3, perm: 'report:read', roles: STAFF },
   { href: '/analytics', label: 'تحلیل هوشمند', icon: Sparkles, perm: 'analytics:query' },
   { href: '/users', label: 'مدیریت کاربران', icon: UserCog, perm: 'user:read' },
   { href: '/roles', label: 'نقش‌ها و دسترسی', icon: ShieldCheck, perm: 'role:read' },
@@ -35,7 +38,7 @@ const NAV: NavItem[] = [
 
 export function Sidebar({ open }: { open: boolean }) {
   const pathname = usePathname();
-  const { hasPerm } = useAuth();
+  const { hasPerm, hasRole } = useAuth();
 
   return (
     <aside
@@ -49,7 +52,7 @@ export function Sidebar({ open }: { open: boolean }) {
         <span className="text-lg font-bold text-brand-900">سامان</span>
       </div>
       <nav className="space-y-1 p-3">
-        {NAV.filter((n) => !n.perm || hasPerm(n.perm)).map((n) => {
+        {NAV.filter((n) => (!n.perm || hasPerm(n.perm)) && (!n.roles || hasRole(...n.roles))).map((n) => {
           const active = pathname === n.href || pathname.startsWith(n.href + '/');
           const Icon = n.icon;
           return (

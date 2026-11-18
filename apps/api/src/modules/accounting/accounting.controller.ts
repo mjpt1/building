@@ -3,7 +3,7 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { AccountingService } from './accounting.service';
 import { Permissions } from '@/common/decorators/permissions.decorator';
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
-import { PaginationQueryDto } from '@/common/dto/pagination.dto';
+import { ListFilterQueryDto, PaginationQueryDto } from '@/common/dto/pagination.dto';
 import {
   CreateCashboxDto,
   CreateIncomeDto,
@@ -65,7 +65,7 @@ export class AccountingController {
   // هزینه
   @Get('expenses')
   @Permissions('accounting:read')
-  expenses(@Param('buildingId') b: string, @Query() q: PaginationQueryDto & { categoryId?: string }) {
+  expenses(@Param('buildingId') b: string, @Query() q: ListFilterQueryDto) {
     return this.svc.listExpenses(b, q);
   }
 
@@ -78,7 +78,7 @@ export class AccountingController {
   // دفتر کل
   @Get('ledger')
   @Permissions('accounting:read')
-  ledger(@Param('buildingId') b: string, @Query() q: PaginationQueryDto & { cashboxId?: string }) {
+  ledger(@Param('buildingId') b: string, @Query() q: ListFilterQueryDto) {
     return this.svc.ledger(b, q);
   }
 }

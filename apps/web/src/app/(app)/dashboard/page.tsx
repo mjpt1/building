@@ -11,8 +11,8 @@ import { formatRial, faNumber } from '@/lib/format';
 import { StatCard, StatusBadge, Loading, EmptyState, PageHeader } from '@/components/ui';
 
 export default function DashboardPage() {
-  const { buildingId, hasPerm, user } = useAuth();
-  const isManager = hasPerm('report:read') && !!buildingId;
+  const { buildingId, hasRole, user } = useAuth();
+  const isManager = hasRole('SUPER_ADMIN', 'BUILDING_MANAGER', 'ACCOUNTANT') && !!buildingId;
 
   if (isManager) return <ManagerDashboard buildingId={buildingId!} />;
   return <ResidentDashboard name={user?.fullName ?? ''} />;

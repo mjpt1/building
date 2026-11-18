@@ -62,8 +62,13 @@ export class MaintenanceService {
     return req;
   }
 
-  async list(buildingId: string, q: PaginationQueryDto & { status?: string; priority?: string; assignedToId?: string }) {
+  async list(
+    buildingId: string,
+    q: PaginationQueryDto & { status?: string; priority?: string; assignedToId?: string },
+    requesterId?: string,
+  ) {
     const where: any = { buildingId, deletedAt: null };
+    if (requesterId) where.requesterId = requesterId;
     if (q.status) where.status = q.status;
     if (q.priority) where.priority = q.priority;
     if (q.assignedToId) where.assignedToId = q.assignedToId;

@@ -46,12 +46,18 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     const roles = new Set<string>();
     const permissions = new Set<string>();
     const buildingIds = new Set<string>();
+    const buildingRoles: Record<string, string[]> = {};
+    const buildingPermissions: Record<string, string[]> = {};
 
     for (const ur of user.userRoles) {
       roles.add(ur.role.key);
-      if (ur.buildingId) buildingIds.add(ur.buildingId);
+      if (ur.buildingId) {
+        buildingIds.add(ur.buildingId);
+        (buildingRoles[ur.buildingId] ??= []).push(ur.role.key);
+      }
       for (const rp of ur.role.rolePermissions) {
         permissions.add(rp.permission.key);
+        if (ur.buildingId) (buildingPermissions[ur.buildingId] ??= []).push(rp.permission.key);
       }
     }
 
@@ -62,6 +68,8 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       roles: [...roles],
       permissions: [...permissions],
       buildingIds: [...buildingIds],
+      buildingRoles,
+      buildingPermissions,
     };
   }
 }

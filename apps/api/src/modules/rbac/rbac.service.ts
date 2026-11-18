@@ -1,6 +1,8 @@
+import { ForbiddenException } from '@nestjs/common';
+import { AuthUser } from '@/common/decorators/current-user.decorator';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@/common/prisma/prisma.service';
-import { ROLE_LABELS } from './rbac.constants';
+import { ROLES, ROLE_LABELS } from './rbac.constants';
 
 @Injectable()
 export class RbacService {
@@ -32,7 +34,16 @@ export class RbacService {
     return grouped;
   }
 
-  async assignRole(userId: string, roleKey: string, buildingId?: string) {
+  /** مدیر غیرکل فقط در ساختمان خودش و فقط نقش‌های غیرسراسری را مدیریت می‌کند */
+  private assertCanManage(actor: AuthUser, roleKey: string, buildingId?: string | null) {
+    if (actor.roles.includes(ROLES.SUPER_ADMIN)) return;
+    if (roleKey === ROLES.SUPER_ADMIN || !buildingId || !actor.buildingIds.includes(buildingId)) {
+      throw new ForbiddenException('اجازه‌ی مدیریت این نقش را ندارید.');
+    }
+  }
+
+  async assignRole(userId: string, roleKey: string, buildingId: string | undefined, actor: AuthUser) {
+    this.assertCanManage(actor, roleKey, buildingId);
     const [user, role] = await Promise.all([
       this.prisma.user.findUnique({ where: { id: userId } }),
       this.prisma.role.findUnique({ where: { key: roleKey } }),
@@ -56,7 +67,13 @@ export class RbacService {
     });
   }
 
-  async revokeRole(userRoleId: string) {
+  async revokeRole(userRoleId: string, actor: AuthUser) {
+    const current = await this.prisma.userRole.findUnique({
+      where: { id: userRoleId },
+      include: { role: true },
+    });
+    if (!current) throw new NotFoundException('نقش یافت نشد.');
+    this.assertCanManage(actor, current.role.key, current.buildingId);
     await this.prisma.userRole.delete({ where: { id: userRoleId } });
     return { message: 'نقش حذف شد.' };
   }

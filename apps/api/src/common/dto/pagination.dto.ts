@@ -43,3 +43,16 @@ export interface PaginatedMeta {
 export function buildMeta(total: number, page: number, limit: number): PaginatedMeta {
   return { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) };
 }
+
+/** فیلترهای اختیاری لیست‌ها؛ باید کلاس باشد تا ValidationPipe مقادیر را تبدیل کند */
+export class ListFilterQueryDto extends PaginationQueryDto {
+  @IsOptional() @IsString() status?: string;
+  @IsOptional() @IsString() priority?: string;
+  @IsOptional() @IsString() assignedToId?: string;
+  @IsOptional() @IsString() unitId?: string;
+  @IsOptional() @IsString() method?: string;
+  @IsOptional() @IsString() entity?: string;
+  @IsOptional() @IsString() userId?: string;
+  @IsOptional() @IsString() categoryId?: string;
+  @IsOptional() @IsString() cashboxId?: string;
+}

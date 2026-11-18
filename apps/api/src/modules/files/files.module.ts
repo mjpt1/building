@@ -8,7 +8,6 @@ import { customAlphabet } from 'nanoid';
 import { AttachmentKind } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { Permissions } from '@/common/decorators/permissions.decorator';
-import { Public } from '@/common/decorators/public.decorator';
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
 
 const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
@@ -109,7 +108,8 @@ class FilesController {
     return this.svc.upload(file, uid);
   }
 
-  @Public()
+  @ApiBearerAuth()
+  @Permissions('file:read')
   @Get(':id')
   download(@Param('id') id: string, @Res() res: Response) {
     return this.svc.stream(id, res);

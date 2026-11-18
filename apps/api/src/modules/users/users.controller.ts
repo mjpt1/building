@@ -1,10 +1,11 @@
+import { AuthUser, CurrentUser } from '@/common/decorators/current-user.decorator';
+import { isSuperAdmin } from '@/common/guards/building-scope.guard';
 import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { IsBoolean, IsEmail, IsOptional, IsString, Matches, MinLength } from 'class-validator';
 import { UsersService } from './users.service';
 import { Permissions } from '@/common/decorators/permissions.decorator';
 import { Public } from '@/common/decorators/public.decorator';
-import { CurrentUser } from '@/common/decorators/current-user.decorator';
 import { PaginationQueryDto } from '@/common/dto/pagination.dto';
 
 class CreateUserDto {
@@ -41,8 +42,8 @@ export class UsersController {
 
   @Get()
   @Permissions('user:read')
-  list(@Query() q: PaginationQueryDto) {
-    return this.users.list(q);
+  list(@Query() q: PaginationQueryDto, @CurrentUser() user: AuthUser) {
+    return this.users.list(q, isSuperAdmin(user) ? undefined : user.buildingIds);
   }
 
   @Get(':id')

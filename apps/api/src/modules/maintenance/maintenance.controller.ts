@@ -2,8 +2,9 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { MaintenanceService } from './maintenance.service';
 import { Permissions } from '@/common/decorators/permissions.decorator';
-import { CurrentUser } from '@/common/decorators/current-user.decorator';
-import { PaginationQueryDto } from '@/common/dto/pagination.dto';
+import { AuthUser, CurrentUser } from '@/common/decorators/current-user.decorator';
+import { isSelfService } from '@/common/guards/building-scope.guard';
+import { ListFilterQueryDto, PaginationQueryDto } from '@/common/dto/pagination.dto';
 import {
   CreateMaintenanceDto,
   UpdateStatusDto,
@@ -25,8 +26,12 @@ export class MaintenanceController {
 
   @Get('buildings/:buildingId/maintenance')
   @Permissions('maintenance:read')
-  list(@Param('buildingId') b: string, @Query() q: PaginationQueryDto & { status?: string; priority?: string }) {
-    return this.svc.list(b, q);
+  list(
+    @Param('buildingId') b: string,
+    @Query() q: ListFilterQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.list(b, q, isSelfService(user, b) ? user.id : undefined);
   }
 
   @Get('maintenance/:id')

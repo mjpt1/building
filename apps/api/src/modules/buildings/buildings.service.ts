@@ -14,8 +14,9 @@ export class BuildingsService {
   constructor(private readonly prisma: PrismaService) {}
 
   // ───────────── ساختمان‌ها ─────────────
-  async listBuildings(q: PaginationQueryDto) {
+  async listBuildings(q: PaginationQueryDto, allowedIds?: string[]) {
     const where: any = { deletedAt: null };
+    if (allowedIds) where.id = { in: allowedIds };
     if (q.search) where.name = { contains: q.search, mode: 'insensitive' };
     const [rows, total] = await Promise.all([
       this.prisma.building.findMany({

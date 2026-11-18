@@ -8,8 +8,9 @@ import { toJalali } from '@/common/utils/jalali.util';
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(q: PaginationQueryDto) {
+  async list(q: PaginationQueryDto, allowedBuildingIds?: string[]) {
     const where: any = { deletedAt: null };
+    if (allowedBuildingIds) where.userRoles = { some: { buildingId: { in: allowedBuildingIds } } };
     if (q.search) {
       where.OR = [
         { fullName: { contains: q.search, mode: 'insensitive' } },

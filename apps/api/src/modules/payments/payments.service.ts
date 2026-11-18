@@ -40,14 +40,19 @@ export class PaymentsService {
   private async applyToCharge(tx: Prisma.TransactionClient, chargeId: string, amount: number) {
     const charge = await tx.charge.findUnique({ where: { id: chargeId } });
     if (!charge) throw new NotFoundException('شارژ یافت نشد.');
-    const paid = Number(charge.paidAmount) + amount;
-    const total = Number(charge.amount) + Number(charge.penaltyAmount);
+    // افزایش اتمیک تا پرداخت‌های همزمان یکدیگر را بازنویسی نکنند
+    const updated = await tx.charge.update({
+      where: { id: chargeId },
+      data: { paidAmount: { increment: amount } },
+    });
+    const paid = Number(updated.paidAmount);
+    const total = Number(updated.amount) + Number(updated.penaltyAmount);
     let status: ChargeStatus = ChargeStatus.PARTIAL;
     if (paid >= total) status = ChargeStatus.PAID;
     else if (paid <= 0) status = ChargeStatus.PENDING;
     await tx.charge.update({
       where: { id: chargeId },
-      data: { paidAmount: paid, status },
+      data: { status },
     });
     return charge;
   }
@@ -60,7 +65,19 @@ export class PaymentsService {
           where: { buildingId, deletedAt: null, isActive: true },
           orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
         });
-    if (!cashbox) throw new BadRequestException('صندوقی برای ثبت پرداخت موجود نیست.');
+    if (!cashbox || cashbox.buildingId !== buildingId) {
+      throw new BadRequestException('صندوقی برای ثبت پرداخت موجود نیست.');
+    }
+    if (dto.unitId) {
+      const unit = await this.prisma.unit.findFirst({ where: { id: dto.unitId, buildingId } });
+      if (!unit) throw new BadRequestException('واحد متعلق به این ساختمان نیست.');
+    }
+    if (dto.chargeId) {
+      const charge = await this.prisma.charge.findFirst({
+        where: { id: dto.chargeId, unit: { buildingId } },
+      });
+      if (!charge) throw new BadRequestException('شارژ متعلق به این ساختمان نیست.');
+    }
 
     const paidAt = dto.paidAt ? parseJalaliInput(dto.paidAt) : new Date();
 
@@ -125,6 +142,7 @@ export class PaymentsService {
     const remaining = Number(charge.amount) + Number(charge.penaltyAmount) - Number(charge.paidAmount);
     const amount = dto.amount ?? Math.max(0, remaining);
     if (amount <= 0) throw new BadRequestException('این شارژ بدهی پرداخت‌نشده ندارد.');
+    if (amount > remaining) throw new BadRequestException('مبلغ پرداخت بیشتر از بدهی است.');
 
     const callbackUrl = this.config.get<string>('payment.callbackUrl')!;
     const result = await this.gateway.request({
@@ -158,9 +176,12 @@ export class PaymentsService {
     if (trx.status === TransactionStatus.SUCCESS) {
       return { success: true, message: 'این تراکنش قبلاً تایید شده است.', refId: trx.refId };
     }
+    if (trx.status !== TransactionStatus.PENDING) {
+      return { success: false, message: 'این تراکنش قبلاً بسته شده است.' };
+    }
     if (status !== 'OK') {
-      await this.prisma.paymentTransaction.update({
-        where: { id: trx.id },
+      await this.prisma.paymentTransaction.updateMany({
+        where: { id: trx.id, status: TransactionStatus.PENDING },
         data: { status: TransactionStatus.CANCELED },
       });
       return { success: false, message: 'پرداخت توسط کاربر لغو شد.' };
@@ -168,8 +189,8 @@ export class PaymentsService {
 
     const verify = await this.gateway.verify(authority, Number(trx.amount));
     if (!verify.success) {
-      await this.prisma.paymentTransaction.update({
-        where: { id: trx.id },
+      await this.prisma.paymentTransaction.updateMany({
+        where: { id: trx.id, status: TransactionStatus.PENDING },
         data: { status: TransactionStatus.FAILED, callbackPayload: { ...(trx.callbackPayload as any), verify } },
       });
       return { success: false, message: verify.message };
@@ -182,6 +203,18 @@ export class PaymentsService {
     });
 
     const payment = await this.prisma.$transaction(async (tx) => {
+      // تصاحب اتمیک تراکنش: از callbackهای همزمان فقط یکی ادامه می‌دهد
+      const claim = await tx.paymentTransaction.updateMany({
+        where: { id: trx.id, status: TransactionStatus.PENDING },
+        data: {
+          status: TransactionStatus.SUCCESS,
+          refId: verify.refId,
+          cardPan: verify.cardPan,
+          paidAt: new Date(),
+        },
+      });
+      if (claim.count === 0) return null;
+
       const p = await tx.payment.create({
         data: {
           buildingId: trx.buildingId,
@@ -199,13 +232,7 @@ export class PaymentsService {
       });
       await tx.paymentTransaction.update({
         where: { id: trx.id },
-        data: {
-          status: TransactionStatus.SUCCESS,
-          refId: verify.refId,
-          cardPan: verify.cardPan,
-          paymentId: p.id,
-          paidAt: new Date(),
-        },
+        data: { paymentId: p.id },
       });
       if (chargeId) await this.applyToCharge(tx, chargeId, Number(trx.amount));
       if (cashbox) {
@@ -225,6 +252,9 @@ export class PaymentsService {
       return p;
     });
 
+    if (!payment) {
+      return { success: true, message: 'این تراکنش قبلاً تایید شده است.', refId: verify.refId };
+    }
     return { success: true, message: verify.message, refId: verify.refId, receiptNo: payment.receiptNo, paymentId: payment.id };
   }
 

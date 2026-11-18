@@ -8,6 +8,8 @@ export interface AuthUser {
   roles: string[]; // کلید نقش‌ها: SUPER_ADMIN, BUILDING_MANAGER, ...
   permissions: string[]; // کلید مجوزها: charge:create, ...
   buildingIds: string[]; // ساختمان‌هایی که کاربر در آن‌ها نقش دارد
+  buildingRoles: Record<string, string[]>; // نقش‌های کاربر به تفکیک ساختمان
+  buildingPermissions: Record<string, string[]>; // مجوزهای کاربر به تفکیک ساختمان
 }
 
 export const CurrentUser = createParamDecorator(

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { BuildingScopeGuard } from './common/guards/building-scope.guard';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import configuration from './config/configuration';
 import { PrismaModule } from './common/prisma/prisma.module';
@@ -57,6 +58,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    { provide: APP_GUARD, useClass: BuildingScopeGuard },
   ],
 })
 export class AppModule {}

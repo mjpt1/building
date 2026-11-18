@@ -15,7 +15,7 @@ import { PaymentsService } from './payments.service';
 import { Permissions } from '@/common/decorators/permissions.decorator';
 import { Public } from '@/common/decorators/public.decorator';
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
-import { PaginationQueryDto } from '@/common/dto/pagination.dto';
+import { ListFilterQueryDto, PaginationQueryDto } from '@/common/dto/pagination.dto';
 import { CreatePaymentDto, InitiateOnlineDto } from './dto/payment.dto';
 import { buildReceiptHtml } from './receipt.util';
 
@@ -66,7 +66,7 @@ export class PaymentsController {
   @Permissions('payment:read')
   list(
     @Param('buildingId') b: string,
-    @Query() q: PaginationQueryDto & { unitId?: string; method?: string },
+    @Query() q: ListFilterQueryDto,
   ) {
     return this.svc.list(b, q);
   }
@@ -79,7 +79,8 @@ export class PaymentsController {
   }
 
   /** رسید قابل چاپ (HTML راست‌چین) */
-  @Public()
+  @ApiBearerAuth()
+  @Permissions('payment:read')
   @Get(':id/receipt')
   async receipt(@Param('id') id: string, @Res() res: Response) {
     const payment = await this.svc.getOne(id);

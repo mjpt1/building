@@ -1,3 +1,5 @@
+import { AuthUser, CurrentUser } from '@/common/decorators/current-user.decorator';
+import { isSuperAdmin } from '@/common/guards/building-scope.guard';
 import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { BuildingsService } from './buildings.service';
@@ -19,8 +21,8 @@ export class BuildingsController {
 
   @Get()
   @Permissions('building:read')
-  list(@Query() q: PaginationQueryDto) {
-    return this.svc.listBuildings(q);
+  list(@Query() q: PaginationQueryDto, @CurrentUser() user: AuthUser) {
+    return this.svc.listBuildings(q, isSuperAdmin(user) ? undefined : user.buildingIds);
   }
 
   @Get(':id')

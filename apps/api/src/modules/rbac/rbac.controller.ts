@@ -1,8 +1,10 @@
+import { AuthUser, CurrentUser } from '@/common/decorators/current-user.decorator';
+import { Permissions, Roles } from '@/common/decorators/permissions.decorator';
+import { ROLES } from './rbac.constants';
 import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { IsArray, IsOptional, IsString } from 'class-validator';
 import { RbacService } from './rbac.service';
-import { Permissions } from '@/common/decorators/permissions.decorator';
 
 class AssignRoleDto {
   @IsString() userId!: string;
@@ -33,18 +35,18 @@ export class RbacController {
 
   @Post('assign')
   @Permissions('role:assign')
-  assign(@Body() dto: AssignRoleDto) {
-    return this.rbac.assignRole(dto.userId, dto.roleKey, dto.buildingId);
+  assign(@Body() dto: AssignRoleDto, @CurrentUser() actor: AuthUser) {
+    return this.rbac.assignRole(dto.userId, dto.roleKey, dto.buildingId, actor);
   }
 
   @Delete('user-role/:id')
   @Permissions('role:assign')
-  revoke(@Param('id') id: string) {
-    return this.rbac.revokeRole(id);
+  revoke(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
+    return this.rbac.revokeRole(id, actor);
   }
 
   @Put('roles/:id/permissions')
-  @Permissions('role:assign')
+  @Roles(ROLES.SUPER_ADMIN)
   updatePerms(@Param('id') id: string, @Body() dto: UpdatePermsDto) {
     return this.rbac.updateRolePermissions(id, dto.permissionKeys);
   }
