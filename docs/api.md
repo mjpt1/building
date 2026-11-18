@@ -105,7 +105,7 @@ POST /buildings/:id/charges
 | GET | `/payments/verify` | عمومی (callback درگاه) |
 | GET | `/payments/building/:buildingId` | `payment:read` |
 | GET | `/payments/:id` | `payment:read` |
-| GET | `/payments/:id/receipt` | عمومی (رسید HTML) |
+| GET | `/payments/:id/receipt` 🔒 | رسید HTML (نیازمند `payment:read` و دسترسی به همان پرداخت) |
 
 ## حسابداری
 | متد | مسیر | مجوز |

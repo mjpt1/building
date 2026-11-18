@@ -34,7 +34,7 @@ docker compose up -d db minio
 ```bash
 cd apps/api
 pnpm prisma:generate          # تولید Prisma Client
-pnpm prisma:migrate:dev       # ساخت جداول (اولین بار نام migration بپرسد: init)
+pnpm prisma:migrate           # ساخت جداول از migrationهای مخزن
 pnpm seed                     # درج داده‌ی واقعی نمونه (فارسی)
 cd ../..
 ```
