@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { api, tokenStore } from './api';
+import { api, fetchData, tokenStore } from './api';
 
 export interface AuthUser {
   id: string;
@@ -41,11 +41,18 @@ export const useAuth = create<AuthState>((set, get) => ({
     try {
       const res = await api.get('/auth/me');
       const user: AuthUser = res.data.data;
-      set({ user, loading: false });
-      // انتخاب پیش‌فرض ساختمان
-      if (!get().buildingId && user.buildingIds.length > 0) {
-        get().setBuilding(user.buildingIds[0]);
+      // مدیر کل به ساختمان خاصی وصل نیست و از فهرست همه‌ی ساختمان‌ها انتخاب می‌کند.
+      let allowed = user.buildingIds;
+      if (user.roles.includes('SUPER_ADMIN')) {
+        const { data } = await fetchData<{ id: string }[]>('/buildings', { limit: 100 });
+        allowed = data.map((b) => b.id);
       }
+      // ساختمان ذخیره‌شده ممکن است متعلق به کاربر قبلی باشد.
+      const current = get().buildingId;
+      if (allowed.length > 0 && (!current || !allowed.includes(current))) {
+        get().setBuilding(allowed[0]);
+      }
+      set({ user, loading: false });
     } catch {
       set({ user: null, loading: false });
     }

@@ -12,9 +12,10 @@ import { StatCard, StatusBadge, Loading, EmptyState, PageHeader } from '@/compon
 
 export default function DashboardPage() {
   const { buildingId, hasRole, user } = useAuth();
-  const isManager = hasRole('SUPER_ADMIN', 'BUILDING_MANAGER', 'ACCOUNTANT') && !!buildingId;
+  const isStaff = hasRole('SUPER_ADMIN', 'BUILDING_MANAGER', 'ACCOUNTANT');
 
-  if (isManager) return <ManagerDashboard buildingId={buildingId!} />;
+  if (isStaff && !buildingId) return <EmptyState text="هنوز ساختمانی برای نمایش ثبت نشده است." />;
+  if (isStaff) return <ManagerDashboard buildingId={buildingId!} />;
   return <ResidentDashboard name={user?.fullName ?? ''} />;
 }
 
