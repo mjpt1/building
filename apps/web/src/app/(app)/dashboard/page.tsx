@@ -16,6 +16,7 @@ export default function DashboardPage() {
 
   if (isStaff && !buildingId) return <EmptyState text="هنوز ساختمانی برای نمایش ثبت نشده است." />;
   if (isStaff) return <ManagerDashboard buildingId={buildingId!} />;
+  if (hasRole('TECHNICIAN')) return <EmptyState text="درخواست‌های تعمیرات شما در بخش «تعمیرات» قرار دارد." />;
   return <ResidentDashboard name={user?.fullName ?? ''} />;
 }
 

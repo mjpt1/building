@@ -20,7 +20,13 @@ export class AuditController {
     @CurrentUser() user: AuthUser,
   ) {
     const where: any = {};
-    if (!isSuperAdmin(user)) where.buildingId = { in: user.buildingIds };
+    if (!isSuperAdmin(user)) {
+      // رویدادهای ساختمان + رویدادهای بدون ساختمانِ کاربران همان ساختمان (مانند ورود)
+      where.OR = [
+        { buildingId: { in: user.buildingIds } },
+        { buildingId: null, user: { userRoles: { some: { buildingId: { in: user.buildingIds } } } } },
+      ];
+    }
     if (q.entity) where.entity = q.entity;
     if (q.userId) where.userId = q.userId;
 

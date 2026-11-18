@@ -32,7 +32,7 @@ export default function MaintenanceDetailPage() {
   const { data: users } = useQuery({
     queryKey: ['users-tech'],
     queryFn: async () => (await fetchData('/users', { limit: 100 })).data,
-    enabled: hasPerm('maintenance:update'),
+    enabled: hasPerm('maintenance:update') && hasPerm('user:read'),
   });
   const technicians = (users ?? []).filter((u: any) => (u.roles ?? []).some((r: any) => r.key === 'TECHNICIAN'));
 
